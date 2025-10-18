@@ -182,7 +182,8 @@ class KafkaClient:
         """Send message to Kafka topic."""
         producer = await self.get_producer()
         future = producer.send(topic, value=message, key=key)
-        return await asyncio.wrap_future(future)
+        # Don't await the future, just send and forget for now
+        return future
     
     async def close(self):
         """Close Kafka producer."""
@@ -197,9 +198,9 @@ class PolicyEngine:
     def __init__(self):
         """Initialize the policy engine with default policies."""
         self.policies = [
-            TenantIsolationPolicy(),
-            RetryLimitPolicy(max_retries=10),
-            TimeoutPolicy(max_timeout=7200)  # 2 hours
+            TenantIsolationPolicy(),  # FlowPolicy
+            # RetryLimitPolicy(max_retries=10),  # PreTaskPolicy - disabled for now
+            # TimeoutPolicy(max_timeout=7200)  # PreTaskPolicy - disabled for now
         ]
     
     def evaluate_flow(self, flow: Flow, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -225,6 +226,7 @@ class PolicyEngine:
                 continue
                 
             try:
+                # For now, treat all policies as FlowPolicy
                 policy_result = policy.evaluate(flow, context or {})
                 results['policies_evaluated'].append({
                     'policy': policy.name,
@@ -297,11 +299,12 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
 
 # Tenant scope validation
 async def validate_tenant_scope(
-    request_tenant_id: str,
+    request: FlowRunRequest,
     user_info: Dict[str, Any] = Depends(verify_token)
 ) -> Dict[str, Any]:
     """Validate that the user has access to the requested tenant."""
     user_tenant_id = user_info["tenant_id"]
+    request_tenant_id = request.tenant_id
     
     if request_tenant_id != user_tenant_id:
         logger.warning(

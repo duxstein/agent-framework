@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # Dockerfile for Orchestrator Service
+=======
+# Dockerfile for Orchestrator (placeholder)
+>>>>>>> 1fc482f1c958a8bf865f354544dab0fde2428422
 FROM python:3.11-slim
 
 # Set working directory
@@ -21,13 +25,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY sdk/ ./sdk/
 COPY orchestrator/ ./orchestrator/
 
+<<<<<<< HEAD
 # Add current directory to Python path
 ENV PYTHONPATH=/app:$PYTHONPATH
 
+=======
+>>>>>>> 1fc482f1c958a8bf865f354544dab0fde2428422
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash app && chown -R app:app /app
 USER app
 
+<<<<<<< HEAD
 # Expose metrics port
 EXPOSE 9090
 
@@ -37,3 +45,10 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # Start the orchestrator service
 CMD ["python", "orchestrator/service.py"]
+=======
+# Expose port (if needed)
+EXPOSE 8001
+
+# Placeholder command - replace with actual orchestrator command
+CMD ["python", "-c", "print('Orchestrator service placeholder - not yet implemented')"]
+>>>>>>> 1fc482f1c958a8bf865f354544dab0fde2428422

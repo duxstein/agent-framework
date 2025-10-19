@@ -1,0 +1,378 @@
+# Alertmanager Rules for Enterprise AI Agent Framework
+# These rules define alerting conditions for critical system metrics
+
+groups:
+  - name: agent-framework-critical
+    rules:
+      # Service Health Alerts
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: "{{ $labels.job }}"
+          instance: "{{ $labels.instance }}"
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} on {{ $labels.instance }} has been down for more than 1 minute."
+          runbook_url: "https://docs.agent-framework.com/runbooks/service-down"
+
+      # Task Execution Alerts
+      - alert: HighTaskFailureRate
+        expr: rate(task_execution_total{status="failure"}[5m]) / rate(task_execution_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          service: executor
+        annotations:
+          summary: "High task failure rate detected"
+          description: "Task failure rate is {{ $value | humanizePercentage }} for the last 5 minutes."
+          runbook_url: "https://docs.agent-framework.com/runbooks/high-task-failure-rate"
+
+      - alert: CriticalTaskFailureRate
+        expr: rate(task_execution_total{status="failure"}[5m]) / rate(task_execution_total[5m]) > 0.25
+        for: 1m
+        labels:
+          severity: critical
+          service: executor
+        annotations:
+          summary: "Critical task failure rate detected"
+          description: "Task failure rate is {{ $value | humanizePercentage }} for the last 5 minutes."
+          runbook_url: "https://docs.agent-framework.com/runbooks/critical-task-failure-rate"
+
+      # Task Latency Alerts
+      - alert: HighTaskLatency
+        expr: histogram_quantile(0.95, rate(task_execution_duration_seconds_bucket[5m])) > 30
+        for: 3m
+        labels:
+          severity: warning
+          service: executor
+        annotations:
+          summary: "High task execution latency"
+          description: "95th percentile task execution time is {{ $value }}s for the last 5 minutes."
+          runbook_url: "https://docs.agent-framework.com/runbooks/high-task-latency"
+
+      - alert: CriticalTaskLatency
+        expr: histogram_quantile(0.95, rate(task_execution_duration_seconds_bucket[5m])) > 60
+        for: 2m
+        labels:
+          severity: critical
+          service: executor
+        annotations:
+          summary: "Critical task execution latency"
+          description: "95th percentile task execution time is {{ $value }}s for the last 5 minutes."
+          runbook_url: "https://docs.agent-framework.com/runbooks/critical-task-latency"
+
+      # Kafka Consumer Lag Alerts
+      - alert: KafkaConsumerLagHigh
+        expr: kafka_consumer_lag_sum > 1000
+        for: 2m
+        labels:
+          severity: warning
+          service: kafka
+        annotations:
+          summary: "High Kafka consumer lag"
+          description: "Kafka consumer lag is {{ $value }} messages for topic {{ $labels.topic }}."
+          runbook_url: "https://docs.agent-framework.com/runbooks/kafka-consumer-lag"
+
+      - alert: KafkaConsumerLagCritical
+        expr: kafka_consumer_lag_sum > 10000
+        for: 1m
+        labels:
+          severity: critical
+          service: kafka
+        annotations:
+          summary: "Critical Kafka consumer lag"
+          description: "Kafka consumer lag is {{ $value }} messages for topic {{ $labels.topic }}."
+          runbook_url: "https://docs.agent-framework.com/runbooks/kafka-consumer-lag-critical"
+
+      # Queue Depth Alerts
+      - alert: TaskQueueDepthHigh
+        expr: task_queue_depth > 500
+        for: 3m
+        labels:
+          severity: warning
+          service: orchestrator
+        annotations:
+          summary: "High task queue depth"
+          description: "Task queue depth is {{ $value }} tasks."
+          runbook_url: "https://docs.agent-framework.com/runbooks/task-queue-depth"
+
+      - alert: TaskQueueDepthCritical
+        expr: task_queue_depth > 2000
+        for: 2m
+        labels:
+          severity: critical
+          service: orchestrator
+        annotations:
+          summary: "Critical task queue depth"
+          description: "Task queue depth is {{ $value }} tasks."
+          runbook_url: "https://docs.agent-framework.com/runbooks/task-queue-depth-critical"
+
+  - name: agent-framework-resources
+    rules:
+      # CPU Usage Alerts
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: "{{ $labels.instance }}"
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}."
+          runbook_url: "https://docs.agent-framework.com/runbooks/high-cpu-usage"
+
+      - alert: CriticalCPUUsage
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
+        for: 2m
+        labels:
+          severity: critical
+          service: "{{ $labels.instance }}"
+        annotations:
+          summary: "Critical CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}."
+          runbook_url: "https://docs.agent-framework.com/runbooks/critical-cpu-usage"
+
+      # Memory Usage Alerts
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          service: "{{ $labels.instance }}"
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}."
+          runbook_url: "https://docs.agent-framework.com/runbooks/high-memory-usage"
+
+      - alert: CriticalMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          service: "{{ $labels.instance }}"
+        annotations:
+          summary: "Critical memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}."
+          runbook_url: "https://docs.agent-framework.com/runbooks/critical-memory-usage"
+
+      # Disk Usage Alerts
+      - alert: HighDiskUsage
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          service: "{{ $labels.instance }}"
+        annotations:
+          summary: "High disk usage on {{ $labels.instance }}"
+          description: "Disk usage is {{ $value }}% on {{ $labels.instance }} for {{ $labels.mountpoint }}."
+          runbook_url: "https://docs.agent-framework.com/runbooks/high-disk-usage"
+
+      - alert: CriticalDiskUsage
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          service: "{{ $labels.instance }}"
+        annotations:
+          summary: "Critical disk usage on {{ $labels.instance }}"
+          description: "Disk usage is {{ $value }}% on {{ $labels.instance }} for {{ $labels.mountpoint }}."
+          runbook_url: "https://docs.agent-framework.com/runbooks/critical-disk-usage"
+
+  - name: agent-framework-database
+    rules:
+      # Database Connection Alerts
+      - alert: DatabaseConnectionHigh
+        expr: postgresql_stat_activity_count > 80
+        for: 3m
+        labels:
+          severity: warning
+          service: postgres
+        annotations:
+          summary: "High database connection count"
+          description: "PostgreSQL has {{ $value }} active connections."
+          runbook_url: "https://docs.agent-framework.com/runbooks/database-connections"
+
+      - alert: DatabaseConnectionCritical
+        expr: postgresql_stat_activity_count > 95
+        for: 1m
+        labels:
+          severity: critical
+          service: postgres
+        annotations:
+          summary: "Critical database connection count"
+          description: "PostgreSQL has {{ $value }} active connections."
+          runbook_url: "https://docs.agent-framework.com/runbooks/database-connections-critical"
+
+      # Database Query Performance
+      - alert: SlowDatabaseQueries
+        expr: histogram_quantile(0.95, rate(postgresql_query_duration_seconds_bucket[5m])) > 5
+        for: 3m
+        labels:
+          severity: warning
+          service: postgres
+        annotations:
+          summary: "Slow database queries detected"
+          description: "95th percentile query duration is {{ $value }}s."
+          runbook_url: "https://docs.agent-framework.com/runbooks/slow-database-queries"
+
+  - name: agent-framework-cache
+    rules:
+      # Redis Memory Usage
+      - alert: RedisMemoryUsageHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 85
+        for: 3m
+        labels:
+          severity: warning
+          service: redis
+        annotations:
+          summary: "High Redis memory usage"
+          description: "Redis memory usage is {{ $value }}%."
+          runbook_url: "https://docs.agent-framework.com/runbooks/redis-memory-usage"
+
+      - alert: RedisMemoryUsageCritical
+        expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 95
+        for: 1m
+        labels:
+          severity: critical
+          service: redis
+        annotations:
+          summary: "Critical Redis memory usage"
+          description: "Redis memory usage is {{ $value }}%."
+          runbook_url: "https://docs.agent-framework.com/runbooks/redis-memory-usage-critical"
+
+      # Redis Connection Count
+      - alert: RedisConnectionsHigh
+        expr: redis_connected_clients > 100
+        for: 3m
+        labels:
+          severity: warning
+          service: redis
+        annotations:
+          summary: "High Redis connection count"
+          description: "Redis has {{ $value }} connected clients."
+          runbook_url: "https://docs.agent-framework.com/runbooks/redis-connections"
+
+  - name: agent-framework-api
+    rules:
+      # API Error Rate
+      - alert: HighAPIErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+          service: ingress
+        annotations:
+          summary: "High API error rate"
+          description: "API error rate is {{ $value | humanizePercentage }} for the last 5 minutes."
+          runbook_url: "https://docs.agent-framework.com/runbooks/high-api-error-rate"
+
+      - alert: CriticalAPIErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          service: ingress
+        annotations:
+          summary: "Critical API error rate"
+          description: "API error rate is {{ $value | humanizePercentage }} for the last 5 minutes."
+          runbook_url: "https://docs.agent-framework.com/runbooks/critical-api-error-rate"
+
+      # API Response Time
+      - alert: HighAPIResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 3m
+        labels:
+          severity: warning
+          service: ingress
+        annotations:
+          summary: "High API response time"
+          description: "95th percentile API response time is {{ $value }}s."
+          runbook_url: "https://docs.agent-framework.com/runbooks/high-api-response-time"
+
+      - alert: CriticalAPIResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 5
+        for: 2m
+        labels:
+          severity: critical
+          service: ingress
+        annotations:
+          summary: "Critical API response time"
+          description: "95th percentile API response time is {{ $value }}s."
+          runbook_url: "https://docs.agent-framework.com/runbooks/critical-api-response-time"
+
+  - name: agent-framework-business
+    rules:
+      # Flow Execution Alerts
+      - alert: FlowExecutionFailureRate
+        expr: rate(flow_execution_total{status="failure"}[10m]) / rate(flow_execution_total[10m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: orchestrator
+        annotations:
+          summary: "High flow execution failure rate"
+          description: "Flow execution failure rate is {{ $value | humanizePercentage }} for the last 10 minutes."
+          runbook_url: "https://docs.agent-framework.com/runbooks/flow-execution-failure"
+
+      # Tenant Isolation Alerts
+      - alert: TenantIsolationViolation
+        expr: increase(tenant_isolation_violations_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: ingress
+        annotations:
+          summary: "Tenant isolation violation detected"
+          description: "{{ $value }} tenant isolation violations detected in the last 5 minutes."
+          runbook_url: "https://docs.agent-framework.com/runbooks/tenant-isolation-violation"
+
+      # Rate Limiting Alerts
+      - alert: RateLimitExceeded
+        expr: rate(rate_limit_exceeded_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: ingress
+        annotations:
+          summary: "High rate limit violations"
+          description: "Rate limit violations: {{ $value }} per second."
+          runbook_url: "https://docs.agent-framework.com/runbooks/rate-limit-exceeded"
+
+  - name: agent-framework-security
+    rules:
+      # Authentication Failures
+      - alert: HighAuthenticationFailures
+        expr: rate(authentication_failures_total[5m]) > 5
+        for: 3m
+        labels:
+          severity: warning
+          service: ingress
+        annotations:
+          summary: "High authentication failure rate"
+          description: "Authentication failures: {{ $value }} per second."
+          runbook_url: "https://docs.agent-framework.com/runbooks/authentication-failures"
+
+      - alert: CriticalAuthenticationFailures
+        expr: rate(authentication_failures_total[5m]) > 20
+        for: 1m
+        labels:
+          severity: critical
+          service: ingress
+        annotations:
+          summary: "Critical authentication failure rate"
+          description: "Authentication failures: {{ $value }} per second."
+          runbook_url: "https://docs.agent-framework.com/runbooks/authentication-failures-critical"
+
+      # Suspicious Activity
+      - alert: SuspiciousActivity
+        expr: rate(suspicious_activity_total[5m]) > 1
+        for: 1m
+        labels:
+          severity: critical
+          service: ingress
+        annotations:
+          summary: "Suspicious activity detected"
+          description: "Suspicious activity: {{ $value }} events per second."
+          runbook_url: "https://docs.agent-framework.com/runbooks/suspicious-activity"

@@ -1,0 +1,222 @@
+# Prometheus Configuration for Enterprise AI Agent Framework
+# This configuration scrapes metrics from ingress, orchestrator, and executor services
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'agent-framework'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+  - "observability/alertmanager_rules.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 5s
+    metrics_path: /metrics
+
+  # Ingress API Service
+  - job_name: 'ingress-api'
+    static_configs:
+      - targets: ['ingress:8000']
+    metrics_path: /metrics
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    honor_labels: true
+    params:
+      format: ['prometheus']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):.*'
+        replacement: '${1}'
+      - target_label: service
+        replacement: 'ingress'
+      - target_label: component
+        replacement: 'api'
+
+  # Orchestrator Service
+  - job_name: 'orchestrator'
+    static_configs:
+      - targets: ['orchestrator:8001']
+    metrics_path: /metrics
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    honor_labels: true
+    params:
+      format: ['prometheus']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):.*'
+        replacement: '${1}'
+      - target_label: service
+        replacement: 'orchestrator'
+      - target_label: component
+        replacement: 'workflow-manager'
+
+  # Executor Workers
+  - job_name: 'executor-workers'
+    static_configs:
+      - targets: 
+          - 'executor-1:8002'
+          - 'executor-2:8002'
+          - 'executor-3:8002'
+    metrics_path: /metrics
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    honor_labels: true
+    params:
+      format: ['prometheus']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):.*'
+        replacement: '${1}'
+      - target_label: service
+        replacement: 'executor'
+      - target_label: component
+        replacement: 'task-processor'
+
+  # Redis Metrics (requires redis service from main stack)
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis:6379']
+  #   metrics_path: /metrics
+  #   scrape_interval: 30s
+  #   scrape_timeout: 10s
+  #   honor_labels: true
+  #   relabel_configs:
+  #     - source_labels: [__address__]
+  #       target_label: instance
+  #       regex: '([^:]+):.*'
+  #       replacement: '${1}'
+  #     - target_label: service
+  #       replacement: 'redis'
+  #     - target_label: component
+  #       replacement: 'cache'
+
+  # PostgreSQL Metrics (requires postgres service from main stack)
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres:5432']
+  #   metrics_path: /metrics
+  #   scrape_interval: 30s
+  #   scrape_timeout: 10s
+  #   honor_labels: true
+  #   relabel_configs:
+  #     - source_labels: [__address__]
+  #       target_label: instance
+  #       regex: '([^:]+):.*'
+  #       replacement: '${1}'
+  #     - target_label: service
+  #       replacement: 'postgres'
+  #     - target_label: component
+  #       replacement: 'database'
+
+  # Kafka Metrics (requires kafka service from main stack)
+  # - job_name: 'kafka'
+  #   static_configs:
+  #     - targets: ['kafka:9092']
+  #   metrics_path: /metrics
+  #   scrape_interval: 30s
+  #   scrape_timeout: 10s
+  #   honor_labels: true
+  #   relabel_configs:
+  #     - source_labels: [__address__]
+  #       target_label: instance
+  #       regex: '([^:]+):.*'
+  #       replacement: '${1}'
+  #     - target_label: service
+  #       replacement: 'kafka'
+  #     - target_label: component
+  #       replacement: 'message-broker'
+
+  # Node Exporter for system metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: 
+          - 'ingress:9100'
+          - 'orchestrator:9100'
+          - 'executor-1:9100'
+          - 'executor-2:9100'
+          - 'executor-3:9100'
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    honor_labels: true
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):.*'
+        replacement: '${1}'
+      - target_label: service
+        replacement: 'node-exporter'
+      - target_label: component
+        replacement: 'system-metrics'
+
+  # cAdvisor for container metrics
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: 
+          - 'ingress:8080'
+          - 'orchestrator:8080'
+          - 'executor-1:8080'
+          - 'executor-2:8080'
+          - 'executor-3:8080'
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    honor_labels: true
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):.*'
+        replacement: '${1}'
+      - target_label: service
+        replacement: 'cadvisor'
+      - target_label: component
+        replacement: 'container-metrics'
+
+  # Grafana for dashboard metrics
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    honor_labels: true
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):.*'
+        replacement: '${1}'
+      - target_label: service
+        replacement: 'grafana'
+      - target_label: component
+        replacement: 'dashboard'
+
+# Remote write configuration for long-term storage (optional)
+# remote_write:
+#   - url: "http://victoriametrics:8428/api/v1/write"
+#     queue_config:
+#       max_samples_per_send: 1000
+#       batch_send_deadline: 5s
+#       max_retries: 3
+#       min_backoff: 30ms
+#       max_backoff: 100ms
+
+# Storage configuration handled via command line arguments

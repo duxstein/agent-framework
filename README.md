@@ -1,17 +1,79 @@
-# Enterprise AI Agent Framework
+<!-- PROJECT LOGO -->
+<p align="center">
+  <a href="#">
+    <img src="docs/assets/logo.png" alt="AI Agent Framework Logo" width="140" height="140">
+  </a>
+</p>
 
-A comprehensive platform for building enterprise-grade AI agent workflows with support for multi-tenancy, validation, policies, PostgreSQL-backed flow registry, and a complete REST API with Docker Compose setup.
+<h1 align="center">🤖 AI Agent Framework</h1>
 
-## Features
+<p align="center">
+  <b>End-to-End Framework for Building, Orchestrating & Observing Intelligent AI Agents</b>
+  <br/>
+  <br/>
+  <a href="#"><img src="https://img.shields.io/badge/python-3.10+-blue.svg?logo=python&logoColor=white" alt="Python 3.10+"></a>
+  <a href="#"><img src="https://img.shields.io/badge/OpenVINO-Enabled-success.svg?logo=intel&logoColor=white" alt="OpenVINO"></a>
+  <a href="#"><img src="https://img.shields.io/badge/Intel-DevCloud-blue.svg?logo=intel&logoColor=white" alt="Intel DevCloud"></a>
+  <a href="#"><img src="https://img.shields.io/badge/Apache-Airflow-orange.svg?logo=apacheairflow&logoColor=white" alt="Apache Airflow"></a>
+  <a href="#"><img src="https://img.shields.io/badge/Apache-Kafka-black.svg?logo=apachekafka&logoColor=white" alt="Apache Kafka"></a>
+  <a href="#"><img src="https://img.shields.io/badge/License-TBD-lightgrey.svg" alt="License TBD"></a>
+</p>
 
-- **Pydantic Models**: Type-safe Task and Flow models with automatic validation
-- **Policy System**: Extensible policy framework for pre-task, post-task, and flow-level policies
-- **Flow Registry**: PostgreSQL-backed registry for managing flow metadata
-- **REST API**: FastAPI-based ingress API with JWT authentication and webhook support
-- **Docker Compose**: Complete local development environment with all services
-- **CLI Tool**: Command-line interface (`agentctl`) for flow management
-- **Multi-tenancy**: Built-in support for tenant isolation
-- **Comprehensive Testing**: Full test coverage with pytest
+---
+
+## 🧭 Overview
+
+The **AI Agent Framework** is a modular, extensible system for building autonomous and semi-autonomous agents that can reason, act, and adapt.  
+It integrates **workflow orchestration**, **observability**, **tool integrations**, and **Intel® optimizations** to deliver real-world performance and reliability for intelligent automation systems.
+
+This repository contains an **Enterprise**-grade implementation with: multi-tenancy, Pydantic validation, a policy system, PostgreSQL-backed Flow Registry, REST ingress, Docker Compose for local dev, CLI tooling, and extensive tests.
+
+---
+
+## 🏗️ Project Structure
+
+```bash
+agent-framework/
+├── sdk/                    # Core SDK for agent creation and workflow design
+│   ├── models.py           # Pydantic Task/Flow models
+│   ├── policy.py           # Policy interfaces and builtin policies
+│   └── registry.py         # FlowRegistry client & helpers
+├── orchestrator/           # Workflow orchestration engine (Airflow/state-machine)
+│   ├── dags/               # Airflow DAG definitions generated from flows
+│   └── state_machine.py    # Alternative state-machine runner
+├── executor/               # Execution engine and workers
+│   ├── executor_core.py
+│   ├── retry_manager.py
+│   └── tools/              # Tool adapters (LLM, HTTP, DB, OCR...)
+├── ingress/                # REST API, webhooks, and ingress handlers
+│   ├── api.py              # FastAPI application
+│   └── auth.py             # JWT auth & tenant middleware
+├── infra/                  # Docker, Kubernetes manifests, CI configs
+│   ├── docker-compose.yml
+│   └── k8s/
+├── observability/          # Prometheus, Grafana, OpenTelemetry configs
+├── demos/                  # Reference agents and example workflows
+│   ├── doc_qna/
+│   └── ticket_resolver/
+├── docs/                   # Design docs, diagrams, screenshots, READMEs per module
+├── tests/                  # Unit & integration tests (pytest)
+└── tools/                  # CLI (agentctl) and helper scripts
+```
+
+---
+
+## ⚙️ Features
+
+- **Pydantic Models**: Type-safe Task and Flow models with automatic validation and helpful error messages.  
+- **Policy System**: Extensible policy framework supporting pre-task, post-task, and flow-level policies (for retries, timeouts, validation, tenant rules).  
+- **Flow Registry**: PostgreSQL-backed registry for versioned flow metadata, auditing, and search.  
+- **REST API**: FastAPI-based ingress API with JWT authentication, multi-tenant middleware, and webhook support.  
+- **Docker Compose**: Complete local development environment (Postgres, Redis, Kafka, Airflow, Grafana, Prometheus).  
+- **CLI Tool**: `agentctl` for validate/publish/list/get/delete flows and view registry stats.  
+- **Multi-tenancy**: Tenant isolation via request middleware, storage partitioning and policy scopes.  
+- **Comprehensive Testing**: Pytest test suite covering SDK, policies, registry, and end-to-end flows.
+
+---
 
 ## 🚀 Quick Start with Docker Compose
 
@@ -21,10 +83,10 @@ The easiest way to get started is using Docker Compose, which provides a complet
 # Start all services
 docker-compose up -d
 
-# View logs
+# View logs for the ingress API
 docker-compose logs -f ingress-api
 
-# Test the API
+# Test the API health endpoint
 curl http://localhost:8000/health
 
 # Stop services
@@ -33,21 +95,33 @@ docker-compose down
 
 ### Services Included
 
-- **Ingress API** (Port 8000): FastAPI service for flow management
-- **PostgreSQL** (Port 5432): Database for audit logs and flow registry
-- **Redis** (Port 6379): Caching layer for performance
-- **Kafka** (Port 9092): Message broker for flow events
-- **Kafka UI** (Port 8080): Web interface for Kafka monitoring
+- **Ingress API** (Port 8000): FastAPI service for flow management and ingress.  
+- **PostgreSQL** (Port 5432): Database for audit logs and flow registry.  
+- **Redis** (Port 6379): Caching layer and short-term memory.  
+- **Kafka** (Port 9092): Message broker for flow events and inter-agent messaging.  
+- **Kafka UI** (Port 8080): Web interface for Kafka monitoring.  
+- **Airflow** (Port 8081): DAG orchestration UI (optional, if using Airflow orchestrator).  
+- **Grafana** (Port 3000) & **Prometheus** (Port 9090): Observability stack.
 
-For detailed Docker setup instructions, see [docker/README.md](docker/README.md).
+For detailed Docker setup instructions, see `docker/README.md`.
 
-## Installation
+---
+
+## Installation (local dev)
 
 ```bash
+git clone https://github.com/your-username/agent-framework.git
+cd agent-framework
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Quick Start
+If you use Docker Compose, many dependencies (DB, Kafka, Redis) are provided by the compose stack so local install is mainly for development tools and SDK usage.
+
+---
+
+## ⚡ Quick Start Examples
 
 ### Creating a Flow
 
@@ -150,6 +224,8 @@ python agentctl get flow-123-456
 python agentctl stats
 ```
 
+---
+
 ## API Reference
 
 ### Models
@@ -251,6 +327,8 @@ registry = FlowRegistry(
 - `search_flows(query, tenant_id=None, limit=100)`
 - `get_flow_statistics(tenant_id=None)`
 
+---
+
 ## Built-in Policies
 
 ### RetryLimitPolicy
@@ -285,6 +363,8 @@ Validates task execution results.
 policy = ResultValidationPolicy(required_fields=["status", "data"])
 ```
 
+---
+
 ## Testing
 
 Run the test suite:
@@ -301,11 +381,15 @@ pytest tests/sdk/test_policy.py -v
 pytest tests/sdk/test_registry.py -v
 ```
 
+---
+
 ## Examples
 
 See the `examples/` directory for complete usage examples:
 
 - `sdk_example.py`: Comprehensive example showing all SDK features
+
+---
 
 ## CLI Commands
 
@@ -357,6 +441,8 @@ Show registry statistics.
 python agentctl stats
 ```
 
+---
+
 ## Configuration
 
 ### Database Setup
@@ -383,14 +469,40 @@ export AGENT_DB_USER=agent_user
 export AGENT_DB_PASSWORD=your_password
 ```
 
+---
+
+## Related README Files (module-specific)
+
+> Use these links to jump to module-level documentation within this repository.
+
+- 📦 **docker/README.md** — Docker Compose, environment, and deployment instructions.  
+- ⚙️ **sdk/README.md** — SDK reference, models, and code examples.  
+- 🧩 **cli/README.md** — CLI usage, flags, and examples (`agentctl`).  
+- 🌐 **api/README.md** — REST API endpoints, authentication, and webhook docs.  
+- 📊 **observability/README.md** — Grafana dashboards, Prometheus metrics, and tracing.  
+- 🧪 **tests/README.md** — Test strategy and running CI tests.
+
+---
+
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
+1. Fork the repository  
+2. Create a feature branch  
+3. Add tests for new functionality  
+4. Ensure all tests pass  
+5. Submit a pull request with clear description and changelog
+
+---
 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+
+<p align="center">
+  <sub>Built with ❤️ for the <b>Intel Unnati Program 2025</b><br/>
+  Powered by <b>FastAPI</b>, <b>PostgreSQL</b>, and <b>Docker</b>.
+  <br/>
+  <b>© 2025 AI Agent Framework</b></sub>
+</p>

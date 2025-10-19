@@ -163,7 +163,7 @@ services:
       retries: 3
     restart: unless-stopped
 
-  # Orchestrator Service (placeholder for future implementation)
+  # Orchestrator Service
   orchestrator:
     build:
       context: .
@@ -178,27 +178,126 @@ services:
         condition: service_healthy
     environment:
       # Database Configuration
-      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/agent_framework"
+      ORCHESTRATOR_DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/agent_framework"
+      ORCHESTRATOR_FLOW_REGISTRY_URL: "postgresql://postgres:postgres@postgres:5432/agent_framework"
       
       # Redis Configuration
-      REDIS_URL: "redis://redis:6379"
+      ORCHESTRATOR_REDIS_URL: "redis://redis:6379"
+      ORCHESTRATOR_REDIS_KEY_TTL: "3600"
       
       # Kafka Configuration
-      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
-      KAFKA_TOPIC_FLOW_RUNS: "flow_runs"
-      KAFKA_TOPIC_TASK_QUEUE: "task_queue"
+      ORCHESTRATOR_KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      ORCHESTRATOR_KAFKA_CONSUMER_GROUP: "orchestrator-service"
+      ORCHESTRATOR_KAFKA_AUTO_OFFSET_RESET: "latest"
+      
+      # Retry Configuration
+      ORCHESTRATOR_MAX_RETRY_ATTEMPTS: "3"
+      ORCHESTRATOR_RETRY_BACKOFF_BASE: "2"
+      ORCHESTRATOR_TASK_TIMEOUT_DEFAULT: "300"
+      
+      # Metrics Configuration
+      ORCHESTRATOR_METRICS_PORT: "9090"
+      ORCHESTRATOR_METRICS_ENABLED: "true"
+      
+      # Performance Configuration
+      ORCHESTRATOR_MAX_CONCURRENT_RUNS: "1000"
+      ORCHESTRATOR_MAX_CONCURRENT_TASKS: "10000"
+      
+      # Dead Letter Queue Configuration
+      ORCHESTRATOR_DEAD_LETTER_QUEUE_ENABLED: "true"
+      ORCHESTRATOR_DEAD_LETTER_QUEUE_TOPIC: "dead_letter_queue"
       
       # Logging Configuration
-      LOG_LEVEL: "INFO"
-      LOG_FORMAT: "json"
+      ORCHESTRATOR_LOG_LEVEL: "INFO"
+      ORCHESTRATOR_LOG_FORMAT: "json"
+      
+      # Health Check Configuration
+      ORCHESTRATOR_HEALTH_CHECK_INTERVAL: "30"
+      ORCHESTRATOR_HEALTH_CHECK_TIMEOUT: "5"
+    ports:
+      - "9090:9090"  # Prometheus metrics
     volumes:
       - ./orchestrator:/app/orchestrator
       - ./sdk:/app/sdk
     networks:
       - agent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     restart: unless-stopped
     profiles:
       - orchestrator  # Only start with --profile orchestrator
+
+  # Executor Worker Service
+  executor-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.executor
+    container_name: agent-framework-executor-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      # Database Configuration
+      EXECUTOR_DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/agent_framework"
+      EXECUTOR_CONNECTOR_REGISTRY_URL: "postgresql://postgres:postgres@postgres:5432/agent_framework"
+      
+      # Redis Configuration
+      EXECUTOR_REDIS_URL: "redis://redis:6379"
+      EXECUTOR_IDEMPOTENCY_TTL: "3600"
+      
+      # Kafka Configuration
+      EXECUTOR_KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      EXECUTOR_KAFKA_CONSUMER_GROUP: "executor-worker"
+      EXECUTOR_KAFKA_AUTO_OFFSET_RESET: "latest"
+      
+      # Execution Configuration
+      EXECUTOR_MAX_WORKERS: "10"
+      EXECUTOR_TASK_TIMEOUT_DEFAULT: "300"
+      EXECUTOR_MAX_RETRY_ATTEMPTS: "3"
+      
+      # Metrics Configuration
+      EXECUTOR_METRICS_PORT: "9091"
+      EXECUTOR_METRICS_ENABLED: "true"
+      
+      # Performance Configuration
+      EXECUTOR_MAX_CONCURRENT_TASKS: "100"
+      EXECUTOR_THREAD_POOL_SIZE: "20"
+      EXECUTOR_PROCESS_POOL_SIZE: "4"
+      
+      # Dead Letter Queue Configuration
+      EXECUTOR_DEAD_LETTER_QUEUE_ENABLED: "true"
+      EXECUTOR_DEAD_LETTER_QUEUE_TOPIC: "dead_letter_queue"
+      
+      # Logging Configuration
+      EXECUTOR_LOG_LEVEL: "INFO"
+      EXECUTOR_LOG_FORMAT: "json"
+      
+      # Connector Configuration
+      EXECUTOR_CONNECTOR_CACHE_SIZE: "100"
+      EXECUTOR_CONNECTOR_CACHE_TTL: "3600"
+    ports:
+      - "9091:9091"  # Prometheus metrics
+    volumes:
+      - ./executor:/app/executor
+      - ./connectors:/app/connectors
+      - ./sdk:/app/sdk
+    networks:
+      - agent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - executor  # Only start with --profile executor
 
 volumes:
   postgres_data:

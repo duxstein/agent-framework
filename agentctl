@@ -1,0 +1,412 @@
+#!/usr/bin/env python3
+"""
+Agent Control Tool (agentctl) for Enterprise AI Agent Framework SDK.
+
+This CLI tool provides commands for validating, publishing, and listing flows
+in the agent framework registry.
+"""
+
+import json
+import sys
+import os
+from pathlib import Path
+from typing import Optional, List, Dict, Any
+
+import click
+from click import Context
+
+# Add the SDK to the path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from sdk.models import Flow, Task
+from sdk.registry import FlowRegistry, RegistryError
+from sdk.policy import (
+    Policy, PreTaskPolicy, PostTaskPolicy, FlowPolicy,
+    RetryLimitPolicy, TimeoutPolicy, TenantIsolationPolicy, ResultValidationPolicy
+)
+
+
+@click.group()
+@click.version_option(version="1.0.0")
+@click.option('--verbose', '-v', is_flag=True, help='Enable verbose output')
+@click.option('--config', '-c', help='Path to configuration file')
+@click.pass_context
+def cli(ctx: Context, verbose: bool, config: Optional[str]):
+    """
+    Agent Control Tool (agentctl) for Enterprise AI Agent Framework SDK.
+    
+    This tool provides commands for managing flows in the agent framework.
+    """
+    ctx.ensure_object(dict)
+    ctx.obj['verbose'] = verbose
+    ctx.obj['config'] = config
+
+
+@cli.command()
+@click.argument('flow_path', type=click.Path(exists=True))
+@click.option('--output', '-o', help='Output file for validation results')
+@click.option('--format', 'output_format', type=click.Choice(['json', 'yaml', 'text']), default='text', help='Output format')
+@click.pass_context
+def validate(ctx: Context, flow_path: str, output: Optional[str], output_format: str):
+    """
+    Validate a flow definition file.
+    
+    FLOW_PATH: Path to the flow JSON file to validate
+    """
+    verbose = ctx.obj['verbose']
+    
+    try:
+        if verbose:
+            click.echo(f"Loading flow from: {flow_path}")
+        
+        # Load the flow
+        flow = Flow.load(flow_path)
+        
+        if verbose:
+            click.echo(f"Flow loaded: {flow.id} (version: {flow.version})")
+        
+        # Validate the flow
+        validation_result = flow.validate()
+        
+        # Prepare output
+        result = {
+            'flow_id': flow.id,
+            'flow_version': flow.version,
+            'validation': validation_result,
+            'statistics': flow.get_statistics()
+        }
+        
+        if validation_result['valid']:
+            click.echo(click.style("Flow validation passed", fg='green'))
+            if verbose:
+                click.echo(f"  - Tasks: {validation_result['task_count']}")
+                click.echo(f"  - Valid tasks: {validation_result['valid_tasks']}")
+        else:
+            click.echo(click.style("Flow validation failed", fg='red'))
+            for error in validation_result['errors']:
+                click.echo(f"  - {error}")
+        
+        # Output results
+        if output:
+            if output_format == 'json':
+                with open(output, 'w') as f:
+                    json.dump(result, f, indent=2)
+                click.echo(f"Validation results saved to: {output}")
+            elif output_format == 'yaml':
+                try:
+                    import yaml
+                    with open(output, 'w') as f:
+                        yaml.dump(result, f, default_flow_style=False)
+                    click.echo(f"Validation results saved to: {output}")
+                except ImportError:
+                    click.echo("YAML output requires PyYAML. Install with: pip install PyYAML")
+            else:
+                with open(output, 'w') as f:
+                    f.write(f"Flow Validation Results\n")
+                    f.write(f"======================\n")
+                    f.write(f"Flow ID: {result['flow_id']}\n")
+                    f.write(f"Version: {result['flow_version']}\n")
+                    f.write(f"Valid: {validation_result['valid']}\n")
+                    if not validation_result['valid']:
+                        f.write(f"Errors:\n")
+                        for error in validation_result['errors']:
+                            f.write(f"  - {error}\n")
+                click.echo(f"Validation results saved to: {output}")
+        
+        # Exit with appropriate code
+        sys.exit(0 if validation_result['valid'] else 1)
+        
+    except Exception as e:
+        click.echo(click.style(f"Error validating flow: {str(e)}", fg='red'))
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument('flow_path', type=click.Path(exists=True))
+@click.option('--name', '-n', required=True, help='Name for the flow in the registry')
+@click.option('--description', '-d', help='Description of the flow')
+@click.option('--tags', '-t', help='Comma-separated list of tags')
+@click.option('--registry-url', help='Registry database URL')
+@click.option('--dry-run', is_flag=True, help='Validate without publishing')
+@click.pass_context
+def publish(ctx: Context, flow_path: str, name: str, description: Optional[str], 
+           tags: Optional[str], registry_url: Optional[str], dry_run: bool):
+    """
+    Publish a flow to the registry.
+    
+    FLOW_PATH: Path to the flow JSON file to publish
+    """
+    verbose = ctx.obj['verbose']
+    
+    try:
+        if verbose:
+            click.echo(f"Loading flow from: {flow_path}")
+        
+        # Load the flow
+        flow = Flow.load(flow_path)
+        
+        if verbose:
+            click.echo(f"Flow loaded: {flow.id} (version: {flow.version})")
+        
+        # Validate the flow first
+        validation_result = flow.validate()
+        if not validation_result['valid']:
+            click.echo(click.style("Flow validation failed:", fg='red'))
+            for error in validation_result['errors']:
+                click.echo(f"  - {error}")
+            sys.exit(1)
+        
+        click.echo(click.style("Flow validation passed", fg='green'))
+        
+        if dry_run:
+            click.echo("Dry run mode - flow would be published successfully")
+            return
+        
+        # Parse tags
+        tag_list = []
+        if tags:
+            tag_list = [tag.strip() for tag in tags.split(',') if tag.strip()]
+        
+        # Connect to registry
+        if registry_url:
+            registry = FlowRegistry(connection_string=registry_url)
+        else:
+            # Use default connection parameters
+            registry = FlowRegistry()
+        
+        # Register the flow
+        flow_metadata = registry.register_flow(
+            flow=flow,
+            name=name,
+            description=description,
+            tags=tag_list
+        )
+        
+        click.echo(click.style("Flow published successfully", fg='green'))
+        click.echo(f"  - Flow ID: {flow_metadata.flow_id}")
+        click.echo(f"  - Name: {flow_metadata.name}")
+        click.echo(f"  - Version: {flow_metadata.version}")
+        click.echo(f"  - Tenant: {flow_metadata.tenant_id or 'None'}")
+        
+        if tag_list:
+            click.echo(f"  - Tags: {', '.join(tag_list)}")
+        
+    except RegistryError as e:
+        click.echo(click.style(f"Registry error: {str(e)}", fg='red'))
+        sys.exit(1)
+    except Exception as e:
+        click.echo(click.style(f"Error publishing flow: {str(e)}", fg='red'))
+        sys.exit(1)
+
+
+@cli.command()
+@click.option('--tenant-id', help='Filter by tenant ID')
+@click.option('--name-filter', help='Filter by name (partial match)')
+@click.option('--tags', help='Comma-separated list of tags to filter by')
+@click.option('--limit', default=50, help='Maximum number of results')
+@click.option('--format', 'output_format', type=click.Choice(['table', 'json', 'yaml']), default='table', help='Output format')
+@click.option('--registry-url', help='Registry database URL')
+@click.pass_context
+def list_flows(ctx: Context, tenant_id: Optional[str], name_filter: Optional[str], 
+              tags: Optional[str], limit: int, output_format: str, registry_url: Optional[str]):
+    """
+    List flows in the registry.
+    """
+    verbose = ctx.obj['verbose']
+    
+    try:
+        # Parse tags
+        tag_list = []
+        if tags:
+            tag_list = [tag.strip() for tag in tags.split(',') if tag.strip()]
+        
+        # Connect to registry
+        if registry_url:
+            registry = FlowRegistry(connection_string=registry_url)
+        else:
+            registry = FlowRegistry()
+        
+        # List flows
+        flows = registry.list_flows(
+            tenant_id=tenant_id,
+            name_filter=name_filter,
+            tag_filter=tag_list,
+            limit=limit
+        )
+        
+        if not flows:
+            click.echo("No flows found matching the criteria")
+            return
+        
+        if output_format == 'json':
+            result = [flow.to_dict() for flow in flows]
+            click.echo(json.dumps(result, indent=2))
+        elif output_format == 'yaml':
+            try:
+                import yaml
+                result = [flow.to_dict() for flow in flows]
+                click.echo(yaml.dump(result, default_flow_style=False))
+            except ImportError:
+                click.echo("YAML output requires PyYAML. Install with: pip install PyYAML")
+        else:
+            # Table format
+            click.echo(f"Found {len(flows)} flows:")
+            click.echo()
+            
+            # Print header
+            click.echo(f"{'ID':<36} {'Name':<20} {'Version':<10} {'Tenant':<15} {'Updated':<20}")
+            click.echo("-" * 100)
+            
+            for flow in flows:
+                click.echo(f"{flow.flow_id:<36} {flow.name[:19]:<20} {flow.version:<10} "
+                         f"{flow.tenant_id or 'None':<15} {flow.updated_at.strftime('%Y-%m-%d %H:%M:%S'):<20}")
+        
+    except RegistryError as e:
+        click.echo(click.style(f"Registry error: {str(e)}", fg='red'))
+        sys.exit(1)
+    except Exception as e:
+        click.echo(click.style(f"Error listing flows: {str(e)}", fg='red'))
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument('flow_id')
+@click.option('--registry-url', help='Registry database URL')
+@click.option('--output', '-o', help='Output file for the flow')
+@click.pass_context
+def get(ctx: Context, flow_id: str, registry_url: Optional[str], output: Optional[str]):
+    """
+    Get a flow from the registry by ID.
+    
+    FLOW_ID: ID of the flow to retrieve
+    """
+    verbose = ctx.obj['verbose']
+    
+    try:
+        # Connect to registry
+        if registry_url:
+            registry = FlowRegistry(connection_string=registry_url)
+        else:
+            registry = FlowRegistry()
+        
+        # Get the flow
+        flow = registry.get_flow(flow_id)
+        
+        if not flow:
+            click.echo(click.style(f"Flow {flow_id} not found", fg='red'))
+            sys.exit(1)
+        
+        # Get metadata
+        metadata = registry.get_flow_metadata(flow_id)
+        
+        click.echo(click.style("Flow retrieved successfully", fg='green'))
+        click.echo(f"  - Flow ID: {flow.id}")
+        click.echo(f"  - Name: {metadata.name if metadata else 'Unknown'}")
+        click.echo(f"  - Version: {flow.version}")
+        click.echo(f"  - Tenant: {flow.tenant_id or 'None'}")
+        click.echo(f"  - Tasks: {len(flow.tasks)}")
+        
+        if output:
+            flow.save(output)
+            click.echo(f"Flow saved to: {output}")
+        else:
+            # Print flow details
+            click.echo("\nFlow Details:")
+            click.echo(json.dumps(flow.to_dict(), indent=2))
+        
+    except RegistryError as e:
+        click.echo(click.style(f"Registry error: {str(e)}", fg='red'))
+        sys.exit(1)
+    except Exception as e:
+        click.echo(click.style(f"Error retrieving flow: {str(e)}", fg='red'))
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument('flow_id')
+@click.option('--registry-url', help='Registry database URL')
+@click.option('--confirm', is_flag=True, help='Skip confirmation prompt')
+@click.pass_context
+def delete(ctx: Context, flow_id: str, registry_url: Optional[str], confirm: bool):
+    """
+    Delete a flow from the registry.
+    
+    FLOW_ID: ID of the flow to delete
+    """
+    verbose = ctx.obj['verbose']
+    
+    try:
+        # Connect to registry
+        if registry_url:
+            registry = FlowRegistry(connection_string=registry_url)
+        else:
+            registry = FlowRegistry()
+        
+        # Check if flow exists
+        metadata = registry.get_flow_metadata(flow_id)
+        if not metadata:
+            click.echo(click.style(f"Flow {flow_id} not found", fg='red'))
+            sys.exit(1)
+        
+        # Confirm deletion
+        if not confirm:
+            click.echo(f"Are you sure you want to delete flow '{metadata.name}' (ID: {flow_id})?")
+            if not click.confirm("This action cannot be undone"):
+                click.echo("Deletion cancelled")
+                return
+        
+        # Delete the flow
+        deleted = registry.delete_flow(flow_id)
+        
+        if deleted:
+            click.echo(click.style("Flow deleted successfully", fg='green'))
+        else:
+            click.echo(click.style("Failed to delete flow", fg='red'))
+            sys.exit(1)
+        
+    except RegistryError as e:
+        click.echo(click.style(f"Registry error: {str(e)}", fg='red'))
+        sys.exit(1)
+    except Exception as e:
+        click.echo(click.style(f"Error deleting flow: {str(e)}", fg='red'))
+        sys.exit(1)
+
+
+@cli.command()
+@click.option('--registry-url', help='Registry database URL')
+@click.pass_context
+def stats(ctx: Context, registry_url: Optional[str]):
+    """
+    Show registry statistics.
+    """
+    verbose = ctx.obj['verbose']
+    
+    try:
+        # Connect to registry
+        if registry_url:
+            registry = FlowRegistry(connection_string=registry_url)
+        else:
+            registry = FlowRegistry()
+        
+        # Get statistics
+        stats = registry.get_flow_statistics()
+        
+        click.echo("Registry Statistics:")
+        click.echo("===================")
+        click.echo(f"Total flows: {stats['total_flows']}")
+        click.echo(f"Unique tenants: {stats['unique_tenants']}")
+        click.echo(f"Unique names: {stats['unique_names']}")
+        click.echo(f"Average tags per flow: {stats['avg_tags_per_flow']:.1f}")
+        click.echo(f"Earliest flow: {stats['earliest_flow']}")
+        click.echo(f"Latest flow: {stats['latest_flow']}")
+        
+    except RegistryError as e:
+        click.echo(click.style(f"Registry error: {str(e)}", fg='red'))
+        sys.exit(1)
+    except Exception as e:
+        click.echo(click.style(f"Error getting statistics: {str(e)}", fg='red'))
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    cli()

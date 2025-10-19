@@ -1,0 +1,316 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: agent-framework-postgres
+    environment:
+      POSTGRES_DB: agent_framework
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - agent-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: agent-framework-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - agent-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: agent-framework-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    networks:
+      - agent-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka Message Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: agent-framework-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_NUM_PARTITIONS: 3
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - agent-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka UI for monitoring
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: agent-framework-kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    ports:
+      - "8080:8080"
+    networks:
+      - agent-network
+
+  # Ingress API Service
+  ingress-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ingress
+    container_name: agent-framework-ingress-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      # JWT Configuration
+      JWT_SECRET_KEY: "your-secret-key-change-in-production"
+      JWT_ALGORITHM: "HS256"
+      JWT_EXPIRE_MINUTES: "60"
+      
+      # Database Configuration
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/agent_framework"
+      
+      # Redis Configuration
+      REDIS_URL: "redis://redis:6379"
+      REDIS_CACHE_TTL: "300"
+      
+      # Kafka Configuration
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_TOPIC_FLOW_RUNS: "flow_runs"
+      
+      # API Configuration
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+      API_WORKERS: "1"
+      
+      # Logging Configuration
+      LOG_LEVEL: "INFO"
+      LOG_FORMAT: "json"
+      
+      # CORS Configuration
+      CORS_ORIGINS: "*"
+      
+      # Security Configuration
+      ALLOWED_HOSTS: "*"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ingress:/app/ingress
+      - ./sdk:/app/sdk
+    networks:
+      - agent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Orchestrator Service
+  orchestrator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.orchestrator
+    container_name: agent-framework-orchestrator
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      # Database Configuration
+      ORCHESTRATOR_DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/agent_framework"
+      ORCHESTRATOR_FLOW_REGISTRY_URL: "postgresql://postgres:postgres@postgres:5432/agent_framework"
+      
+      # Redis Configuration
+      ORCHESTRATOR_REDIS_URL: "redis://redis:6379"
+      ORCHESTRATOR_REDIS_KEY_TTL: "3600"
+      
+      # Kafka Configuration
+      ORCHESTRATOR_KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      ORCHESTRATOR_KAFKA_CONSUMER_GROUP: "orchestrator-service"
+      ORCHESTRATOR_KAFKA_AUTO_OFFSET_RESET: "latest"
+      
+      # Retry Configuration
+      ORCHESTRATOR_MAX_RETRY_ATTEMPTS: "3"
+      ORCHESTRATOR_RETRY_BACKOFF_BASE: "2"
+      ORCHESTRATOR_TASK_TIMEOUT_DEFAULT: "300"
+      
+      # Metrics Configuration
+      ORCHESTRATOR_METRICS_PORT: "9090"
+      ORCHESTRATOR_METRICS_ENABLED: "true"
+      
+      # Performance Configuration
+      ORCHESTRATOR_MAX_CONCURRENT_RUNS: "1000"
+      ORCHESTRATOR_MAX_CONCURRENT_TASKS: "10000"
+      
+      # Dead Letter Queue Configuration
+      ORCHESTRATOR_DEAD_LETTER_QUEUE_ENABLED: "true"
+      ORCHESTRATOR_DEAD_LETTER_QUEUE_TOPIC: "dead_letter_queue"
+      
+      # Logging Configuration
+      ORCHESTRATOR_LOG_LEVEL: "INFO"
+      ORCHESTRATOR_LOG_FORMAT: "json"
+      
+      # Health Check Configuration
+      ORCHESTRATOR_HEALTH_CHECK_INTERVAL: "30"
+      ORCHESTRATOR_HEALTH_CHECK_TIMEOUT: "5"
+    ports:
+      - "9090:9090"  # Prometheus metrics
+    volumes:
+      - ./orchestrator:/app/orchestrator
+      - ./sdk:/app/sdk
+    networks:
+      - agent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - orchestrator  # Only start with --profile orchestrator
+
+  # Executor Worker Service
+  executor-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.executor
+    container_name: agent-framework-executor-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      # Database Configuration
+      EXECUTOR_DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/agent_framework"
+      EXECUTOR_CONNECTOR_REGISTRY_URL: "postgresql://postgres:postgres@postgres:5432/agent_framework"
+      
+      # Redis Configuration
+      EXECUTOR_REDIS_URL: "redis://redis:6379"
+      EXECUTOR_IDEMPOTENCY_TTL: "3600"
+      
+      # Kafka Configuration
+      EXECUTOR_KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      EXECUTOR_KAFKA_CONSUMER_GROUP: "executor-worker"
+      EXECUTOR_KAFKA_AUTO_OFFSET_RESET: "latest"
+      
+      # Execution Configuration
+      EXECUTOR_MAX_WORKERS: "10"
+      EXECUTOR_TASK_TIMEOUT_DEFAULT: "300"
+      EXECUTOR_MAX_RETRY_ATTEMPTS: "3"
+      
+      # Metrics Configuration
+      EXECUTOR_METRICS_PORT: "9091"
+      EXECUTOR_METRICS_ENABLED: "true"
+      
+      # Performance Configuration
+      EXECUTOR_MAX_CONCURRENT_TASKS: "100"
+      EXECUTOR_THREAD_POOL_SIZE: "20"
+      EXECUTOR_PROCESS_POOL_SIZE: "4"
+      
+      # Dead Letter Queue Configuration
+      EXECUTOR_DEAD_LETTER_QUEUE_ENABLED: "true"
+      EXECUTOR_DEAD_LETTER_QUEUE_TOPIC: "dead_letter_queue"
+      
+      # Logging Configuration
+      EXECUTOR_LOG_LEVEL: "INFO"
+      EXECUTOR_LOG_FORMAT: "json"
+      
+      # Connector Configuration
+      EXECUTOR_CONNECTOR_CACHE_SIZE: "100"
+      EXECUTOR_CONNECTOR_CACHE_TTL: "3600"
+    ports:
+      - "9091:9091"  # Prometheus metrics
+    volumes:
+      - ./executor:/app/executor
+      - ./connectors:/app/connectors
+      - ./sdk:/app/sdk
+    networks:
+      - agent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - executor  # Only start with --profile executor
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  zookeeper_data:
+    driver: local
+  zookeeper_logs:
+    driver: local
+  kafka_data:
+    driver: local
+
+networks:
+  agent-network:
+    driver: bridge

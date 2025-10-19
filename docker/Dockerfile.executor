@@ -1,0 +1,40 @@
+# Dockerfile for Executor Worker Service
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY sdk/ ./sdk/
+COPY connectors/ ./connectors/
+COPY executor/ ./executor/
+
+# Add current directory to Python path
+ENV PYTHONPATH=/app:$PYTHONPATH
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash app && chown -R app:app /app
+USER app
+
+# Expose metrics port
+EXPOSE 9091
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:9091/metrics || exit 1
+
+# Start the executor worker
+CMD ["python", "executor/worker.py"]

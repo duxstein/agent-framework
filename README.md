@@ -5,7 +5,7 @@
   </a>
 </p>
 
-<h1 align="center">🤖 AI Agent Framework</h1>
+<h1 align="center">🤖 SynapSys</h1>
 
 <p align="center">
   <b>End-to-End Framework for Building, Orchestrating & Observing Intelligent AI Agents</b>
@@ -23,7 +23,7 @@
 
 ## 🧭 Overview
 
-The **AI Agent Framework** is a modular, extensible system for building autonomous and semi-autonomous agents that can reason, act, and adapt.  
+The **SynapSys** is a modular, extensible system for building autonomous and semi-autonomous agents that can reason, act, and adapt.  
 It integrates **workflow orchestration**, **observability**, **tool integrations**, and **Intel® optimizations** to deliver real-world performance and reliability for intelligent automation systems.
 
 This repository contains an **Enterprise**-grade implementation with: multi-tenancy, Pydantic validation, a policy system, PostgreSQL-backed Flow Registry, REST ingress, Docker Compose for local dev, CLI tooling, and extensive tests.
